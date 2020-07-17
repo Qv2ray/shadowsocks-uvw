@@ -1,12 +1,8 @@
 #include "CipherEnv.hpp"
 
-CipherEnv::CipherEnv(const char* passwd, const char* method)
+CipherEnv::CipherEnv(const char* passwd, const char* method,const char* key)
 {
-    memset(&cipher, 0, sizeof(cipher_env_t));
-    enc_init(&cipher, passwd, method);
+    crypto = crypto_init(passwd, key, method);
 }
 
-CipherEnv::~CipherEnv()
-{
-    enc_release(&cipher);
-}
+CipherEnv::~CipherEnv() = default;

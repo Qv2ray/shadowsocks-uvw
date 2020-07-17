@@ -67,3 +67,22 @@ void* ss_realloc(void* ptr, size_t new_size)
     }
     return new;
 }
+void* ss_aligned_malloc(size_t size)
+{
+    int err;
+    void* tmp = NULL;
+#ifdef HAVE_POSIX_MEMALIGN
+    /* ensure 16 byte alignment */
+    err = posix_memalign(&tmp, 16, size);
+#elif __MINGW32__
+    tmp = _aligned_malloc(size, 16);
+    err = tmp == NULL;
+#else
+    err = -1;
+#endif
+    if (err) {
+        return ss_malloc(size);
+    } else {
+        return tmp;
+    }
+}

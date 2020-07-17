@@ -4,7 +4,7 @@
 #else
 #include "win/getopt.h"
 #endif
-#include "shadowsocksr.h"
+#include "shadowsocks.h"
 #include "signal.h"
 #include "ssrutils.h"
 
@@ -30,39 +30,29 @@ static void usage()
     printf(
         "       -k <password>              Password of your remote server.\n");
     printf(
-        "       -m <encrypt_method>        Encrypt method: none, table, rc4, rc4-md5,\n");
+        "       -m <encrypt_method>        Encrypt method: rc4-md5, \n");
+    printf(
+        "                                  aes-128-gcm, aes-192-gcm, aes-256-gcm,\n");
     printf(
         "                                  aes-128-cfb, aes-192-cfb, aes-256-cfb,\n");
     printf(
         "                                  aes-128-ctr, aes-192-ctr, aes-256-ctr,\n");
     printf(
-        "                                  bf-cfb, camellia-128-cfb, camellia-192-cfb,\n");
+        "                                  camellia-128-cfb, camellia-192-cfb,\n");
     printf(
-        "                                  camellia-256-cfb, cast5-cfb, des-cfb,\n");
+        "                                  camellia-256-cfb, bf-cfb,\n");
     printf(
-        "                                  idea-cfb, rc2-cfb, seed-cfb, salsa20,\n");
+        "                                  chacha20-ietf-poly1305,\n");
     printf(
-        "                                  chacha20 and chacha20-ietf.\n");
+        "                                  xchacha20-ietf-poly1305,\n");
     printf(
-        "                                  The default cipher is rc4-md5.\n");
+        "                                  salsa20, chacha20 and chacha20-ietf.\n");
+    printf(
+        "                                  The default cipher is chacha20-ietf-poly1305.\n");
     printf("\n");
     printf(
         "       [-t <timeout>]             Socket timeout in seconds.\n");
     printf("\n");
-    printf(
-        "       [-O <protocol>]            protocol: origin, auth_sha1, auth_sha1_v2, auth_sha1_v4,\n");
-    printf(
-        "                                  auth_aes_128_sha1, auth_aes_128_md5, auth_chain_a, auth_chain_b,\n");
-    printf(
-        "                                  auth_chain_c, auth_chain_d, auth_chain_e, auth_chain_f.\n");
-    printf("\n");
-    printf(
-        "       [-G <protocol parameter>]  Parameter of your protocol.\n");
-    printf(
-        "       [-o <obfs>]                obfs: plain, http_simple, http_post, tls1.2_ticket_auth.\n");
-    printf("\n");
-    printf(
-        "       [-g <obfs parameter>]      Parameter of your obfs.\n");
     printf(
         "       [-u]                       Enable UDP relay.\n");
     //    printf(
@@ -70,6 +60,11 @@ static void usage()
     printf("\n");
     printf(
         "       [--mtu <MTU>]              MTU of your network interface.\n");
+    printf("\n");
+    printf(
+        "       [--plugin <name>]          Enable SIP003 plugin. (Experimental)\n");
+    printf(
+        "       [--plugin-opts <options>]  Set SIP003 plugin options. (Experimental)\n");
     printf("\n");
     printf(
         "       [-v]                       Verbose mode.\n");
@@ -86,45 +81,57 @@ void sigintHandler(int sig_num)
     LOGI("waiting main loop to exit");
     fflush(stdout);
 }
+enum {
+    GETOPT_VAL_HELP = 257,
+    GETOPT_VAL_MTU,
+    GETOPT_VAL_PLUGIN,
+    GETOPT_VAL_PLUGIN_OPTS,
+    GETOPT_VAL_PASSWORD,
+    GETOPT_VAL_KEY,
+};
 
 int main(int argc, char** argv)
 {
     int c;
     int option_index = 0;
     profile_t p {};
-    p.method = "rc4-md5";
+    p.method = "chacha20-ietf-poly1305";
     p.local_addr = "0.0.0.0";
     p.remote_host = "127.0.0.1";
     p.remote_port = 0;
     p.timeout = 60000;
     p.mtu = 1500;
-    p.obfs = "origin";
-    p.obfs_param = "";
-    p.protocol = "plain";
-    p.protocol_param = "";
+    p.plugin = nullptr;
+    p.plugin_opts = nullptr;
     p.password = "shadowsocksr-uvw";
     opterr = 0;
     static struct option long_options[] = {
-        { "mtu", required_argument, 0, 0 },
-        { "help", no_argument, 0, 0 },
-        { "host", required_argument, 0, 0 },
-        { 0, 0, 0, 0 }
+        { "mtu",         required_argument, NULL, GETOPT_VAL_MTU         },
+        { "plugin",      required_argument, NULL, GETOPT_VAL_PLUGIN      },
+        { "plugin-opts", required_argument, NULL, GETOPT_VAL_PLUGIN_OPTS },
+        { "password",    required_argument, NULL, GETOPT_VAL_PASSWORD    },
+        { "key",         required_argument, NULL, GETOPT_VAL_KEY         },
+        { "help",        no_argument,       NULL, GETOPT_VAL_HELP        },
+        { nullptr, 0, nullptr, 0 }
     };
-    while ((c = getopt_long(argc, argv, "f:s:p:l:k:t:m:i:c:b:L:a:n:huUvA6"
-                                        "O:o:G:g:",
+    while ((c = getopt_long(argc, argv, "s:p:l:k:t:m:i:b:L::huvA6",
                 long_options, &option_index))
         != -1) {
         switch (c) {
-        case 0:
-            if (option_index == 0) {
-                p.mtu = atoi(optarg);
-                LOGI("set MTU to %d", p.mtu);
-            } else if (option_index == 1) {
-                usage();
-                exit(EXIT_SUCCESS);
-            } else if (option_index == 2) {
-                p.remote_host = optarg;
-            }
+        case GETOPT_VAL_MTU:
+            p.mtu=atoi(optarg);
+            break;
+        case GETOPT_VAL_PLUGIN:
+            p.plugin=optarg;
+            break;
+        case GETOPT_VAL_PLUGIN_OPTS:
+            p.plugin_opts=optarg;
+            break;
+        case GETOPT_VAL_PASSWORD:
+            p.password=optarg;
+            break;
+        case GETOPT_VAL_KEY:
+            p.key=optarg;
             break;
         case 's':
             p.remote_host = optarg;
@@ -141,20 +148,8 @@ int main(int argc, char** argv)
         case 't':
             p.timeout = atoi(optarg) * 1000;
             break;
-        case 'O':
-            p.protocol = optarg;
-            break;
         case 'm':
             p.method = optarg;
-            break;
-        case 'o':
-            p.obfs = optarg;
-            break;
-        case 'G':
-            p.protocol_param = optarg;
-            break;
-        case 'g':
-            p.obfs_param = optarg;
             break;
         case '6':
             p.ipv6first = 1;
@@ -168,6 +163,7 @@ int main(int argc, char** argv)
         case 'v':
             p.verbose = 1;
             break;
+        case GETOPT_VAL_HELP:
         case 'h':
             usage();
             exit(EXIT_SUCCESS);

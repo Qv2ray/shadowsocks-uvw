@@ -22,20 +22,9 @@
 #ifndef _SSR_UTILS_H
 #define _SSR_UTILS_H
 
-#if defined(USE_CRYPTO_OPENSSL)
-
-#include <openssl/opensslv.h>
-#define USING_CRYPTO OPENSSL_VERSION_TEXT
-
-#elif defined(USE_CRYPTO_POLARSSL)
-#include <polarssl/version.h>
-#define USING_CRYPTO POLARSSL_VERSION_STRING_FULL
-
-#elif defined(USE_CRYPTO_MBEDTLS)
 #include <mbedtls/version.h>
 #define USING_CRYPTO MBEDTLS_VERSION_STRING_FULL
 
-#endif
 
 #ifdef __cplusplus
 extern "C"
@@ -47,7 +36,9 @@ extern "C"
 #include <stdlib.h>
 #include <time.h>
 
-struct tm* ssr_safe_localtime(time_t* t, struct tm* tp);
+    struct tm* ssr_safe_localtime(time_t* t, struct tm* tp);
+#define SIZE_FMT "%Iu"
+#define SSIZE_FMT "%Id"
 #ifdef ANDROID
 
 #include <android/log.h>
@@ -57,33 +48,33 @@ struct tm* ssr_safe_localtime(time_t* t, struct tm* tp);
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "shadowsocks", __VA_ARGS__))
 
 #else // ANDROID
-void ssr_log_print(const char* fmt,...);
+void ssr_log_print(const char* fmt, ...);
 extern int use_tty;
 #define TIME_FORMAT "%Y-%m-%d %H:%M:%S"
-#define LOGI(format, ...)                                                                        \
-    do {                                                                                         \
-            time_t now = time(NULL);                                                             \
-            struct tm tp;                                                                        \
-            char timestr[20];                                                                    \
-            strftime(timestr, 20, TIME_FORMAT, ssr_safe_localtime(&now, &tp));                   \
-            if (use_tty) {                                                                       \
-                ssr_log_print("\e[01;32m %s INFO: \e[0m" format, timestr, ##__VA_ARGS__); \
-            } else {                                                                             \
-                ssr_log_print(" %s INFO: " format , timestr, ##__VA_ARGS__);               \
-            }                                                                                    \
+#define LOGI(format, ...)                                                             \
+    do {                                                                              \
+        time_t now = time(NULL);                                                      \
+        struct tm tp;                                                                 \
+        char timestr[20];                                                             \
+        strftime(timestr, 20, TIME_FORMAT, ssr_safe_localtime(&now, &tp));            \
+        if (use_tty) {                                                                \
+            ssr_log_print("\e[01;32m %s INFO: \e[0m" format, timestr, ##__VA_ARGS__); \
+        } else {                                                                      \
+            ssr_log_print(" %s INFO: " format, timestr, ##__VA_ARGS__);               \
+        }                                                                             \
     } while (0)
 
-#define LOGE(format, ...)                                                                         \
-    do {                                                                                          \
-            time_t now = time(NULL);                                                              \
-            struct tm tp;                                                                         \
-            char timestr[20];                                                                     \
-            strftime(timestr, 20, TIME_FORMAT, ssr_safe_localtime(&now, &tp));                    \
-            if (use_tty) {                                                                        \
-                ssr_log_print( "\e[01;35m %s ERROR: \e[0m" format, timestr, ##__VA_ARGS__); \
-            } else {                                                                              \
-                ssr_log_print( " %s ERROR: " format , timestr, ##__VA_ARGS__);               \
-            }                                                                                     \
+#define LOGE(format, ...)                                                              \
+    do {                                                                               \
+        time_t now = time(NULL);                                                       \
+        struct tm tp;                                                                  \
+        char timestr[20];                                                              \
+        strftime(timestr, 20, TIME_FORMAT, ssr_safe_localtime(&now, &tp));             \
+        if (use_tty) {                                                                 \
+            ssr_log_print("\e[01;35m %s ERROR: \e[0m" format, timestr, ##__VA_ARGS__); \
+        } else {                                                                       \
+            ssr_log_print(" %s ERROR: " format, timestr, ##__VA_ARGS__);               \
+        }                                                                              \
     } while (0)
 #if defined(_WIN32)
 #define USE_TTY()
@@ -95,16 +86,28 @@ extern int use_tty;
 #endif
 #endif // ANDROID
 
-void FATAL(const char* msg);
+    void FATAL(const char* msg);
 
-void* ss_malloc(size_t size);
-void* ss_realloc(void* ptr, size_t new_size);
+    void* ss_malloc(size_t size);
+    void* ss_realloc(void* ptr, size_t new_size);
+    void*
+    ss_aligned_malloc(size_t size);
 
 #define ss_free(ptr) \
     do {             \
         free(ptr);   \
         ptr = NULL;  \
     } while (0)
+
+#ifdef __MINGW32__
+#define ss_aligned_free(ptr) \
+    {                        \
+        _aligned_free(ptr);  \
+        ptr = NULL;          \
+    }
+#else
+#define ss_aligned_free(ptr) ss_free(ptr)
+#endif
 
 #ifdef __cplusplus
 }

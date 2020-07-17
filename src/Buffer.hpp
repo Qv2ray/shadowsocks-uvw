@@ -3,7 +3,7 @@
 #include <memory>
 extern "C"
 {
-#include "encrypt.h"
+#include "crypto.h"
 }
 class CipherEnv;
 class ObfsClass;
@@ -41,20 +41,14 @@ public:
     void copy(const Buffer& that);
     void setLength(int l);
     size_t length();
-    void protocolPluginUDPPreEncrypt(UDPRelay& connectionContext);
-    void protocolPluginUDPPostDecrypt(UDPRelay& connectionContext);
-    void protocolPluginPreEncrypt(ObfsClass& obfsClass, ConnectionContext& connectionContext);
-    void protocolPluginPostDecrypt(ObfsClass& obfsClass, ConnectionContext& connectionContext);
     int ssEncrypt(CipherEnv& cipherEnv, ConnectionContext& connectionContext);
     int ssDecrypt(CipherEnv& cipherEnv, ConnectionContext& connectionContext);
     int ssEncryptAll(CipherEnv& cipherEnv);
     int ssDecryptALl(CipherEnv& cipherEnv);
-    void clientEncode(ObfsClass& obfsClass, ConnectionContext& connectionContext, int encodeLen = -1);
-    int clientDecode(ObfsClass& obfsClass, ConnectionContext& connectionContext);
     size_t* getCapacityPtr();
 
 public:
-    static constexpr size_t BUF_DEFAULT_CAPACITY = 2048;
+    static constexpr size_t BUF_DEFAULT_CAPACITY = (16 * 1024 - 1);
 
 private:
     std::unique_ptr<buffer_t, void (*)(buffer_t*)> buf;

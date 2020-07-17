@@ -10,8 +10,6 @@ elseif (NOT APPLE)
 endif ()
 
 
-set(USE_CRYPTO_OPENSSL 1)
-
 set(SOURCE_FILES_LOCAL
         uvw/async.cpp
         uvw/check.cpp
@@ -37,34 +35,14 @@ set(SOURCE_FILES_LOCAL
         uvw/work.cpp
         uvw/udp.cpp
         ssrutils.h
-        obfs/crc32.h
-        obfs/auth.c
-        obfs/auth.h
-        obfs/obfs.c
-        obfs/obfs.h
-        obfs/base64.h
-        obfs/auth_chain.h
-        obfs/auth_chain.c
-        obfs/http_simple.h
-        obfs/obfsutil.c
-        obfs/base64.c
-        obfs/tls1.2_ticket.h
-        obfs/http_simple.c
-        obfs/tls1.2_ticket.c
-        obfs/crc32.c
-        obfs/obfsutil.h
-        ObfsClass.hpp
-        ObfsClass.cpp
         Buffer.hpp
-        encrypt.c
         ConnectionContext.hpp
         sockaddr_universal.h
         uvw_single.hpp
         ConnectionContext.cpp
-        encrypt.h
         cache.h
         ssrutils.c
-        shadowsocksr.h
+        shadowsocks.h
         CipherEnv.hpp
         sockaddr_universal.c
         CipherEnv.cpp
@@ -74,33 +52,47 @@ set(SOURCE_FILES_LOCAL
         NetUtils.hpp
         NetUtils.cpp
         TCPRelay.hpp
+        base64.c
+        base64.h
+        aead.c
+        stream.c
+        crypto.c
+        ppbloom.c
+        ppbloom.h
+        stream.h
+        crypto.h
+        aead.h
         UDPConnectionContext.cpp UDPConnectionContext.hpp UDPRelay.cpp UDPRelay.hpp)
-add_library(shadowsocksr-uvw-common OBJECT ${SOURCE_FILES_LOCAL})
-target_compile_definitions(shadowsocksr-uvw-common PUBLIC UVW_AS_LIB)
+add_library(shadowsocks-uvw-common OBJECT ${SOURCE_FILES_LOCAL})
+message("soium include_directories: " ${libsodium_include_dirs})
+target_include_directories(shadowsocks-uvw-common PUBLIC ${libsodium_include_dirs})
+target_compile_definitions(shadowsocks-uvw-common PUBLIC UVW_AS_LIB)
 if (SSR_UVW_WITH_QT)
     message("find Qt5")
     find_package(Qt5 COMPONENTS Core REQUIRED)
-    qt5_wrap_cpp(ssr_thread_moc SSRThread.hpp)
+    qt5_wrap_cpp(ssr_thread_moc SSThread.hpp)
     set(SOURCE_FILES_LOCAL_QT
             ${ssr_thread_moc}
-            SSRThread.cpp
+            SSThread.cpp
             qt_ui_log.cpp
-            ssr_log_utils.cpp
+            ss_log_utils.cpp
             local_uv.cpp
-            #local_uv.cpp uses macro SSR_UVW_WITH_QT,so it's not part of shadowsocksr-uvw-common
+            #local_uv.cpp uses macro SSR_UVW_WITH_QT,so it's not part of shadowsocks-uvw-common
             )
-    add_library(${PROJECT_NAME}-qt STATIC ${SOURCE_FILES_LOCAL_QT} $<TARGET_OBJECTS:shadowsocksr-uvw-common>)
+    add_library(${PROJECT_NAME}-qt STATIC ${SOURCE_FILES_LOCAL_QT} $<TARGET_OBJECTS:shadowsocks-uvw-common>)
     target_compile_definitions(${PROJECT_NAME}-qt PUBLIC SSR_UVW_WITH_QT UVW_AS_LIB)
     set_target_properties(${PROJECT_NAME}-qt PROPERTIES POSITION_INDEPENDENT_CODE 1)
-    add_library(shadowsocksr::uvw::qt ALIAS ${PROJECT_NAME}-qt)
+    add_library(shadowsocks::uvw::qt ALIAS ${PROJECT_NAME}-qt)
 endif ()
 include_directories(${LibUV_INCLUDE_DIR})
 include_directories(${libsodium_include_dirs})
+include_directories(${MBEDTLS_INCLUDE_DIR})
+include_directories(${LIBBLOOM_INCLUDE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-add_library(${PROJECT_NAME} STATIC local_uv.cpp ssr_log_utils.cpp $<TARGET_OBJECTS:shadowsocksr-uvw-common>)
-#local_uv.cpp uses macro SSR_UVW_WITH_QT,so it's not part of shadowsocksr-uvw-common
-add_library(shadowsocksr::uvw ALIAS ${PROJECT_NAME})
+add_library(${PROJECT_NAME} STATIC local_uv.cpp ss_log_utils.cpp $<TARGET_OBJECTS:shadowsocks-uvw-common>)
+#local_uv.cpp uses macro SSR_UVW_WITH_QT,so it's not part of shadowsocks-uvw-common
+add_library(shadowsocks::uvw ALIAS ${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE 1)
 target_compile_definitions(${PROJECT_NAME} PUBLIC UVW_AS_LIB)
 set(
@@ -109,6 +101,7 @@ set(
         ${LibUV_LIBRARIES}
         ${WINSOCK2}
         ${CRYPT32}
+        ${LIBBLOOM_LIBRARY}
 )
 
 set(ssr_crypto
@@ -117,7 +110,7 @@ set(ssr_crypto
         )
 
 if(WIN32)
-    target_link_libraries(shadowsocksr-uvw-common 
+    target_link_libraries(shadowsocks-uvw-common 
         ${COMMON_LINK_LIBS} ${ssr_crypto})
 endif()
 
@@ -136,10 +129,10 @@ target_link_libraries(${PROJECT_NAME}
         ${COMMON_LINK_LIBS} ${ssr_crypto}
         )
 if(NOT WIN32)
-    set(SSR_LOCAL_SOURCE ssr_local.cpp ssr_log_utils.cpp)
+    set(SS_LOCAL_SOURCE ss_local.cpp ss_log_utils.cpp)
 else()
-    set(SSR_LOCAL_SOURCE ssr_local.cpp win/getopt.c ssr_log_utils.cpp)
+    set(SS_LOCAL_SOURCE ss_local.cpp win/getopt.c ss_log_utils.cpp)
 endif()
-add_executable(ssr-local ${SSR_LOCAL_SOURCE})
-target_compile_definitions(ssr-local PUBLIC UVW_AS_LIB)
-target_link_libraries(ssr-local shadowsocksr::uvw)
+add_executable(ss-local ${SS_LOCAL_SOURCE})
+target_compile_definitions(ss-local PUBLIC UVW_AS_LIB)
+target_link_libraries(ss-local shadowsocks::uvw)

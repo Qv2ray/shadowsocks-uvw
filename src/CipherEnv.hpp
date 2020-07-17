@@ -1,14 +1,17 @@
 #ifndef CIPHERENV_HPP
 #define CIPHERENV_HPP
-#include "encrypt.h"
+extern "C"
+{
+#include "crypto.h"
+};
 
 #include <memory>
 
 class CipherEnv
 {
 public:
-    cipher_env_t cipher {};
-    CipherEnv(const char* passwd, const char* method);
+    crypto_t* crypto = nullptr;
+    CipherEnv(const char* passwd, const char* method,const char* key= nullptr);
     ~CipherEnv();
 };
 

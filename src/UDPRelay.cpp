@@ -27,10 +27,6 @@
 namespace
 {
 
-inline void dummyDisposeObfs(obfs*)
-{
-}
-
 inline uint16_t load16_be(const void* s)
 {
     const auto* in = (const uint8_t*)s;
@@ -40,27 +36,15 @@ inline uint16_t load16_be(const void* s)
 
 }
 
-UDPRelay::UDPRelay(std::shared_ptr<uvw::Loop> loop, CipherEnv& cipherEnv, ObfsClass& obfsClass, const profile_t& profile)
+UDPRelay::UDPRelay(std::shared_ptr<uvw::Loop> loop, CipherEnv& cipherEnv, const profile_t& profile)
     : loop(std::move(loop))
     , cipherEnvPtr(&cipherEnv)
-    , protocol_plugin { reinterpret_cast<obfs_class*>(new_obfs_class(profile.protocol)), free }
-    , protocolPtr { protocol_plugin ? protocol_plugin->new_obfs() : nullptr, protocol_plugin ? protocol_plugin->dispose : dummyDisposeObfs }
-    , protocol_global { protocolPtr ? protocol_plugin->init_data() : nullptr }
     , timeout { profile.timeout }
 {
-    server_info_t serverInfo;
-    memset(&serverInfo, 0, sizeof(server_info_t));
-    strcpy(serverInfo.host, profile.local_addr);
-    serverInfo.port = profile.local_port;
-    serverInfo.g_data = protocol_global;
-    serverInfo.param = profile.protocol_param;
-    serverInfo.key = enc_get_key(&cipherEnv.cipher);
-    serverInfo.key_len = enc_get_key_len(&cipherEnv.cipher);
-    if (protocol_plugin)
-        protocol_plugin->set_server_info(protocolPtr.get(), &serverInfo);
 }
 UDPRelay::~UDPRelay()
 {
+    socketCache.clear();
     if (protocol_global) {
         free(protocol_global);
         protocol_global = nullptr;
@@ -82,7 +66,7 @@ int UDPRelay::initUDPRelay(int mtu, const char* host, int port, struct sockaddr_
         LOGE("[udp]local error %s", e.what());
     });
     sockaddr_storage localStorage;
-    if (ssr_get_sock_addr(loop, host, port, &localStorage, 0) != 0) {
+    if (ssr_get_sock_addr(loop, host, port, &localStorage, 0) == -1) {
         LOGE("[udp]can't bind to %s:%d", host, port);
         return -1;
     }
@@ -195,7 +179,6 @@ void UDPRelay::serverRecv(uvw::UDPDataEvent& data, uvw::UDPHandle& handle)
     if (offset > 0) {
         localBuf->copyFromBegin(data.data.get() + offset, data.length - offset);
     }
-    localBuf->protocolPluginUDPPreEncrypt(*this);
     int err = localBuf->ssEncryptAll(*cipherEnvPtr);
     if (err) {
         panic(data.sender);
@@ -227,7 +210,6 @@ void UDPRelay::remoteRecv(uvw::UDPDataEvent& data, uvw::UDPHandle& handle, const
         panic(localSrcAddr);
         return;
     }
-    ctx->remoteBuf->protocolPluginUDPPostDecrypt(*this);
     if (static_cast<int>(ctx->remoteBuf->length()) < 0) {
         LOGE("[udp]client_udp_post_decrypt");
         panic(localSrcAddr);

@@ -4,6 +4,8 @@
 #include "uvw/stream.h"
 #include "uvw/tcp.h"
 #include "uvw/timer.h"
+#include "uvw/process.h"
+#include "uvw/util.h"
 
 #include <memory>
 #include <unordered_map>
@@ -17,10 +19,9 @@
 #include "CipherEnv.hpp"
 #include "ConnectionContext.hpp"
 #include "NetUtils.hpp"
-#include "ObfsClass.hpp"
-#include "UDPRelay.hpp"
-#include "shadowsocksr.h"
 #include "TCPRelay.hpp"
+#include "UDPRelay.hpp"
+#include "shadowsocks.h"
 #ifdef SSR_UVW_WITH_QT
 #include "qt_ui_log.h"
 #endif
@@ -32,6 +33,8 @@ private:
     static constexpr int SVERSION = 0x05;
     std::shared_ptr<uvw::Loop> loop;
     std::shared_ptr<uvw::TimerHandle> stopTimer;
+    std::shared_ptr<uvw::ProcessHandle> pluginProcess;
+    uint16_t pluginPort = 0;
 #ifdef SSR_UVW_WITH_QT
     std::shared_ptr<uvw::TimerHandle> statisticsUpdateTimer;
 #endif
@@ -42,7 +45,6 @@ private:
     profile_t profile {};
     bool acl = false;
     socks5_address address {};
-    std::unique_ptr<ObfsClass> obfsClass;
     std::unique_ptr<CipherEnv> cipherEnv;
     uint64_t tx = 0, rx = 0;
     uint64_t last_tx = 0, last_rx = 0;
@@ -86,6 +88,80 @@ public:
     }
 
 private:
+    uint16_t getLocalPort()
+    {
+        auto tmpTCP=loop->resource<uvw::TCPHandle>();
+        struct tmp_tcp{
+            tmp_tcp(uvw::TCPHandle& h):h(h){}
+            ~tmp_tcp(){h.close();}
+            uvw::TCPHandle& h;
+        };
+        tmp_tcp t{*tmpTCP};
+        struct sockaddr_in serv_addr;
+        memset(&serv_addr, 0, sizeof(serv_addr));
+        serv_addr.sin_family      = AF_INET;
+        serv_addr.sin_addr.s_addr = INADDR_ANY;
+        serv_addr.sin_port        = 0;
+        tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
+        return tmpTCP->sock().port;
+    }
+
+    void startPlugin()
+    {
+        if(!profile.plugin) return;
+        std::string ss_remote_host{"SS_REMOTE_HOST="};
+        std::string ss_remote_port{"SS_REMOTE_PORT="};
+        std::string ss_local_host{"SS_LOCAL_HOST="};
+        std::string ss_local_port{"SS_LOCAL_PORT="};
+        std::string plugin_opts;
+        std::vector<char*> env;
+        char digitBuffer[8]={0};
+        char* args[2]={nullptr};
+
+        pluginProcess=loop->resource<uvw::ProcessHandle>();
+        using Process=uvw::ProcessHandle::Process;
+        using StdioFlag=uvw::ProcessHandle::StdIO;
+        pluginProcess->flags(uvw::Flags<Process>::from<Process::WINDOWS_HIDE,Process::WINDOWS_HIDE_CONSOLE>());
+        pluginProcess->stdio(uvw::StdOUT,StdioFlag::IGNORE_STREAM);
+        pluginProcess->stdio(uvw::StdERR,StdioFlag::IGNORE_STREAM);
+
+        ss_remote_host+=profile.remote_host;
+        sprintf(digitBuffer,"%d",profile.remote_port); 
+        ss_remote_port+=digitBuffer;
+        ss_local_host+=profile.local_addr;
+        memset(digitBuffer,0,sizeof(digitBuffer));
+        pluginPort = getLocalPort();
+        sprintf(digitBuffer,"%d",pluginPort); 
+        ss_local_port+=digitBuffer;
+        env.push_back(const_cast<char*>(ss_remote_host.c_str()));
+        env.push_back(const_cast<char*>(ss_remote_port.c_str()));
+        env.push_back(const_cast<char*>(ss_local_host.c_str()));
+        env.push_back(const_cast<char*>(ss_local_port.c_str()));
+        if(profile.plugin_opts)
+        {
+            plugin_opts+="SS_PLUGIN_OPTIONS=";
+            plugin_opts+=profile.plugin_opts;
+            env.push_back(const_cast<char*>(plugin_opts.c_str()));
+        }
+        args[0]=const_cast<char*>(profile.plugin);
+        pluginProcess->once<uvw::ErrorEvent>([](uvw::ErrorEvent& e,uvw::ProcessHandle& h)
+        {
+            LOGE("%s",e.what());
+            h.close();
+        });
+        pluginProcess->once<uvw::ExitEvent>([](uvw::ExitEvent& e,uvw::ProcessHandle& h)
+        {
+        LOGI("Accept signal:%d,exit status:%d",e.signal,(int)e.status);
+        h.close();
+        });
+        //get parent path and add cwd to path
+#ifndef _WIN32
+        std::string path{"PATH="+uvw::Utilities::OS::env("PATH")+":"+uvw::Utilities::cwd()};
+        env.push_back(const_cast<char*>(path.c_str()));
+#endif
+        LOGI("plugin \"%s\" enabled", profile.plugin);
+        pluginProcess->spawn(profile.plugin, args, env.data());
+    }
 
     void handShakeReceive(const uvw::DataEvent& event, uvw::TCPHandle& client)
     {
@@ -101,20 +177,6 @@ private:
         client.close();
     }
 
-    static int server_info_head_len(char* buf_atyp_ptr)
-    {
-        switch (*buf_atyp_ptr & 0x7) {
-        case 1:
-            return 7;
-        case 4:
-            return 19;
-        case 3:
-            ++buf_atyp_ptr;
-            return 4 + static_cast<uint8_t>(*buf_atyp_ptr);
-        }
-        return 30; // can't reach here.
-    }
-
     void readAllAddress(uvw::DataEvent& event, uvw::TCPHandle& client)
     {
         ConnectionContext& connectionContext = *inComingConnections[client.shared_from_this()];
@@ -122,7 +184,7 @@ private:
         buf.copy(event);
         if (socks5_address_parse((uint8_t*)buf.begin() + 3, buf.length() - 3, &address)) {
             buf.drop(3);
-            connectionContext.construct_obfs(*cipherEnv, *obfsClass, profile, server_info_head_len(buf.begin() + 3));
+            connectionContext.construct_cipher(*cipherEnv);
             startConnect(client);
         } else {
             client.once<uvw::DataEvent>([this](auto& e, auto& h) { readAllAddress(e, h); });
@@ -153,7 +215,7 @@ private:
             case 0x01:
                 if (buf.length() != 0 && socks5_address_parse((uint8_t*)buf.begin() + 3, buf.length() - 3, &address)) {
                     buf.drop(3);
-                    connectionContext.construct_obfs(*cipherEnv, *obfsClass, profile, server_info_head_len(buf.begin() + 3));
+                    connectionContext.construct_cipher(*cipherEnv);
                     startConnect(client);
                 } else {
                     client.once<uvw::DataEvent>([this](auto& e, auto& h) { readAllAddress(e, h); });
@@ -175,7 +237,7 @@ private:
         }
     }
 
-    void udpAsscResponse(uvw::TCPHandle& client)
+    void udpAsscResponse(uvw::TCPHandle& client) const
     {
         uvw::details::IpTraits<uvw::IPv4>::Type addr;
         uvw::details::IpTraits<uvw::IPv4>::addrFunc(profile.local_addr, profile.local_port, &addr);
@@ -198,17 +260,6 @@ private:
             inComingConnections.erase(clientConnection);
         }
     }
-    int insertSSRHeader(ConnectionContext& ctx, Buffer& buf)
-    {
-        tx += buf.length();
-        buf.protocolPluginPreEncrypt(*obfsClass, ctx);
-        int err = buf.ssEncrypt(*cipherEnv, ctx);
-        if (err) {
-            return err;
-        }
-        buf.clientEncode(*obfsClass, ctx);
-        return 0;
-    }
     void sockStream(uvw::DataEvent& event, uvw::TCPHandle& client)
     {
         if (client.closing())
@@ -221,7 +272,8 @@ private:
         auto& connectionContext = *connectionContextPtr;
         Buffer& buf = *connectionContext.remoteBuf;
         buf.copy(event);
-        int err = insertSSRHeader(connectionContext, buf);
+        tx += buf.length();
+        int err = buf.ssEncrypt(*cipherEnv, connectionContext);
         if (err) {
             panic(clientPtr);
             return;
@@ -239,44 +291,16 @@ private:
         }
         rx += event.length;
         auto& buf = *ctx.localBuf;
-        char* base = event.data.get();
-        char* guard = base + event.length;
-        for (auto iter = base; iter < guard; iter += Buffer::BUF_DEFAULT_CAPACITY) {
-            buf.bufRealloc(Buffer::BUF_DEFAULT_CAPACITY);
-            size_t remain = guard - iter;
-            size_t len = remain > Buffer::BUF_DEFAULT_CAPACITY ? Buffer::BUF_DEFAULT_CAPACITY : remain;
-            buf.copyFromBegin(iter, len);
-            int needsendback = buf.clientDecode(*obfsClass, ctx);
-            if (static_cast<int>(buf.length()) < 0) {
-                panic(ctx.client);
-                return;
-            }
-
-            if (needsendback) {
-                ctx.remoteBuf->clientEncode(*obfsClass, ctx, 0);
-                remote.once<uvw::WriteEvent>([&ctx](auto&, auto&) { ctx.remoteBuf->clear(); });
-                remote.write(ctx.remoteBuf->begin(), ctx.remoteBuf->length());
-            }
-            if (buf.length() > 0) {
-                int err = buf.ssDecrypt(*cipherEnv, ctx);
-                if (err) {
-                    panic(ctx.client);
-                    return;
-                }
-            }
-            if (buf.length() != 0) {
-                buf.protocolPluginPostDecrypt(*obfsClass, ctx);
-            }
-            if (static_cast<int>(buf.length()) < 0) {
-                panic(ctx.client);
-                return;
-            }
-            if (buf.length() == 0) {
-                continue;
-            }
-            ctx.client->write(buf.duplicateDataToArray(), buf.length());
-            buf.clear();
+        buf.copy(event);
+        int err = buf.ssDecrypt(*cipherEnv, ctx);
+        if (err == CRYPTO_ERROR) {
+            panic(ctx.client);
+            return;
+        } else if (err == CRYPTO_NEED_MORE) {
+            return;
         }
+        ctx.client->write(buf.duplicateDataToArray(), buf.length());
+        buf.clear();
     }
 
     void connectRemote(ConnectionContext& ctx)
@@ -292,7 +316,7 @@ private:
             ctx.remoteBuf = std::make_unique<Buffer>();
             ctx.remoteBuf->copy(*ctx.localBuf);
             ctx.localBuf->clear();
-            int err = insertSSRHeader(ctx, *ctx.remoteBuf);
+            int err = ctx.remoteBuf->ssEncrypt(*cipherEnv, ctx);
             if (err) {
                 panic(ctx.client);
                 return;
@@ -345,7 +369,7 @@ private:
         tcpServer->noDelay(true);
         tcpServer->on<uvw::ListenEvent>([this](const uvw::ListenEvent&, uvw::TCPHandle& srv) {
             std::shared_ptr<uvw::TCPHandle> client = srv.loop().resource<uvw::TCPHandle>();
-            inComingConnections.emplace(std::make_pair(client, std::make_shared<ConnectionContext>(client, obfsClass.get(), cipherEnv.get())));
+            inComingConnections.emplace(std::make_pair(client, std::make_shared<ConnectionContext>(client, cipherEnv.get())));
             client->once<uvw::CloseEvent>([this](const uvw::CloseEvent&, uvw::TCPHandle& c) {
                 auto clientPtr = c.shared_from_this();
                 if (verbose)
@@ -362,7 +386,7 @@ private:
             client->read();
         });
         sockaddr_storage localStorage {};
-        if (ssr_get_sock_addr(loop, profile.local_addr, profile.local_port, &localStorage, 0) != 0) {
+        if (ssr_get_sock_addr(loop, profile.local_addr, profile.local_port, &localStorage, 0) == -1) {
             LOGE("local socks server can't bind to %s:%d", profile.local_addr, profile.local_port);
             return -1;
         }
@@ -384,9 +408,15 @@ public:
 #endif
         stopTimer = loop->resource<uvw::TimerHandle>();
         LOGI("listening at %s:%d", profile.local_addr, profile.local_port);
-        obfsClass = std::make_unique<ObfsClass>(profile.protocol, profile.obfs);
-        LOGI("initializing ciphers...%s", profile.method);
-        cipherEnv = std::make_unique<CipherEnv>(profile.password, profile.method);
+        cipherEnv = std::make_unique<CipherEnv>(profile.password, profile.method, profile.key);
+        if(cipherEnv->crypto)
+            LOGI("initializing ciphers...%s", profile.method);
+        else
+        {
+            LOGI("initializing ciphers...%s failed", profile.method);
+            return -1;
+        }
+
 #ifdef SSR_UVW_WITH_QT
         statisticsUpdateTimer = loop->resource<uvw::TimerHandle>();
         statisticsUpdateTimer->on<uvw::TimerEvent>([this](auto& e, auto& handle) {
@@ -396,27 +426,62 @@ public:
 #endif
         stopTimer->on<uvw::TimerEvent>([this, ssr_work_mode = p.mode](auto&, auto& handle) {
             if (isStop) {
+                if(!tcpServer->closing())
+                {
+                    tcpServer->close();
+                    inComingConnections.clear();
+                    if (ssr_work_mode == 1) {
+                    udpRelay.reset(nullptr);
+                    }
+                    if(pluginProcess)
+                    {
+                    pluginProcess->kill(SIGTERM);
+                    }
+                }
+                int timer_count=0;
+                loop->walk([&timer_count](uvw::BaseHandle&h)
+                           {
+                                if(!h.closing())
+                                    timer_count++;
+                           });
+                //only current timer
+                if(timer_count!=1) return;
                 handle.stop();
                 handle.close();
-                tcpServer->close();
-                inComingConnections.clear();
-                if (ssr_work_mode == 1) {
-                    udpRelay.reset(nullptr);
-                }
                 loop->clear();
                 loop->close();
-                obfsClass.reset(nullptr);
                 cipherEnv.reset(nullptr);
                 loop->stop();
             }
         });
         stopTimer->start(uvw::TimerHandle::Time { 500 }, uvw::TimerHandle::Time { 500 });
-        if (ssr_get_sock_addr(loop, profile.remote_host, profile.remote_port, reinterpret_cast<struct sockaddr_storage*>(&remoteAddr), p.ipv6first) != 0)
+        if(profile.plugin)
+        {
+            startPlugin();
+            if(pluginProcess&&pluginProcess->closing())
+                return -1;
+            if(!pluginPort)
+                return -1;
+        }
+        if (ssr_get_sock_addr(loop,
+                    pluginPort? profile.local_addr:profile.remote_host, 
+                    pluginPort? pluginPort:profile.remote_port, 
+                    reinterpret_cast<struct sockaddr_storage*>(&remoteAddr),
+                    p.ipv6first) == -1)
             return -1;
         int res = 0;
         if (p.mode == 1) {
-            udpRelay = std::make_unique<UDPRelay>(loop, *cipherEnv, *obfsClass, profile);
-            res = udpRelay->initUDPRelay(p.mtu, p.local_addr, p.local_port, remoteAddr);
+            udpRelay = std::make_unique<UDPRelay>(loop, *cipherEnv, profile);
+            //udp relay need real remote not plugin
+            struct sockaddr_storage realRemoteAddr;
+            if (ssr_get_sock_addr(loop,
+                        profile.remote_host, 
+                        profile.remote_port, 
+                        reinterpret_cast<struct sockaddr_storage*>(&realRemoteAddr),
+                        p.ipv6first) == -1)
+                return -1;
+            res = udpRelay->initUDPRelay(p.mtu, p.local_addr, p.local_port, realRemoteAddr);
+            LOGI("UDP relay enabled");
             if (res)
                 return res;
         }
@@ -426,12 +491,11 @@ public:
         loop->run();
         return 0;
     }
-
 };
 
 std::shared_ptr<TCPRelay> TCPRelay::create()
 {
-    return std::shared_ptr<TCPRelay>{new TCPRelayImpl};
+    return std::shared_ptr<TCPRelay> { new TCPRelayImpl };
 }
 
 int start_ssr_uv_local_server(profile_t profile)

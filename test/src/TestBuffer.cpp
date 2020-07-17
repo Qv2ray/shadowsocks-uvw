@@ -1,6 +1,6 @@
-#include <Buffer.hpp>
-#include "uvw/udp.h"
 #include "uvw/tcp.h"
+#include "uvw/udp.h"
+#include <Buffer.hpp>
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
@@ -59,48 +59,50 @@ TEST_CASE("DuplicatDataToArray", "[BufferTest]")
 
 TEST_CASE("CopyEvent", "[BufferTest]")
 {
-    auto array = std::make_unique<char[]>(2099);
-    uvw::DataEvent event { std::move(array), 2099 };
+    constexpr auto fake_data_length = 16584;
+    auto array = std::make_unique<char[]>(fake_data_length);
+    uvw::DataEvent event { std::move(array), fake_data_length };
     auto buf = Buffer();
     buf.copy(event);
     //like vector, when capacity is not enough, double capacity with data length.
-    REQUIRE(*buf.getCapacityPtr() == event.length * 2);
-    REQUIRE(buf.length() == 2099);
+    REQUIRE(*buf.getCapacityPtr() == fake_data_length * 2);
+    REQUIRE(buf.length() == fake_data_length);
     //the capacity is enough, nothing happen.
     buf.copy(event);
-    REQUIRE(*buf.getCapacityPtr() == event.length * 2);
-    REQUIRE(buf.length() == 2099 * 2);
+    REQUIRE(*buf.getCapacityPtr() == fake_data_length * 2);
+    REQUIRE(buf.length() == fake_data_length * 2);
     event.length = 0;
     buf.copy(event); // no data to copy, because it's length is zero.
-    REQUIRE(buf.length() == 2099 * 2);
-    auto array2 = std::make_unique<char[]>(2099);
-    for (int i = 0; i < 2099; ++i)
+    REQUIRE(buf.length() == fake_data_length * 2);
+    auto array2 = std::make_unique<char[]>(fake_data_length);
+    for (int i = 0; i < fake_data_length; ++i)
         array2[i] = i % 255;
-    uvw::DataEvent event2 { std::move(array2), 2099 };
+    uvw::DataEvent event2 { std::move(array2), fake_data_length };
     REQUIRE(array2 == nullptr);
     buf.copyFromBegin(event2);
-    REQUIRE(buf.length() == 2099); //when we copy copyFromBegin, the length is reset to event2 length.
+    REQUIRE(buf.length() == fake_data_length); //when we copy copyFromBegin, the length is reset to event2 length.
     REQUIRE(*buf.getCapacityPtr() == event2.length * 2);
-    for (int i = 0; i < 2099; ++i) {
+    for (int i = 0; i < fake_data_length; ++i) {
         REQUIRE(buf[i] == event2.data[i]);
     }
 }
 
 TEST_CASE("UDPCopyEvent", "[BufferTest]")
 {
-    auto array = std::make_unique<char[]>(2099);
+    constexpr auto fake_data_length = 16584;
+    auto array = std::make_unique<char[]>(fake_data_length);
     uvw::Addr addr; //fake sender
-    uvw::UDPDataEvent event { std::move(addr), std::move(array), 2099, false };
+    uvw::UDPDataEvent event { std::move(addr), std::move(array), fake_data_length, false };
     auto buf = Buffer();
     buf.copy(event);
     //like vector, when capacity is not enough, double capacity with data length.
     REQUIRE(*buf.getCapacityPtr() == event.length * 2);
-    REQUIRE(buf.length() == 2099);
+    REQUIRE(buf.length() == fake_data_length);
     //the capacity is enough, nothing happen.
     buf.copy(event);
     REQUIRE(*buf.getCapacityPtr() == event.length * 2);
-    REQUIRE(buf.length() == 2099 * 2);
+    REQUIRE(buf.length() == fake_data_length * 2);
     event.length = 0;
     buf.copy(event); // no data to copy, because it's length is zero.
-    REQUIRE(buf.length() == 2099 * 2);
+    REQUIRE(buf.length() == fake_data_length * 2);
 }

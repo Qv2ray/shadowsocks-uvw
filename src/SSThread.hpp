@@ -1,25 +1,24 @@
-#ifndef SSRTHREAD_HPP
-#define SSRTHREAD_HPP
+#ifndef SSTHREAD_HPP
+#define SSTHREAD_HPP
 #include <QThread>
 class TCPRelay;
-class SSRThread : public QThread
+class SSThread : public QThread
 {
     Q_OBJECT
 public:
     enum class SSR_WORK_MODE { TCP_ONLY = 0,
         TCP_AND_UDP = 1 };
-    explicit SSRThread() = default;
-    explicit SSRThread(int localPort,
+    explicit SSThread() = default;
+    explicit SSThread(int localPort,
         int remotePort,
         std::string local_addr,
         std::string remote_host,
         std::string method,
         std::string password,
-        std::string obfs,
-        std::string obfs_param,
-        std::string protocol,
-        std::string protocol_param);
-    explicit SSRThread(int localPort,
+        std::string plugin,
+        std::string plugin_opts,
+        std::string key);
+    explicit SSThread(int localPort,
         int remotePort,
         int timeout,
         int mtu,
@@ -28,13 +27,12 @@ public:
         std::string remote_host,
         std::string method,
         std::string password,
-        std::string obfs,
-        std::string obfs_param,
-        std::string protocol,
-        std::string protocol_param,
+        std::string plugin,
+        std::string plugin_opts,
+        std::string key,
         int ipv6first = 0,
         int verbose = 0);
-    ~SSRThread() override;
+    ~SSThread() override;
 signals:
     void OnDataReady(quint64 dataUp, quint64 dataDown);
     void onSSRThreadLog(QString);
@@ -55,10 +53,9 @@ private:
     std::string remote_host;
     std::string method;
     std::string password;
-    std::string obfs;
-    std::string obfs_param;
-    std::string protocol;
-    std::string protocol_param;
+    std::string plugin;
+    std::string plugin_opts;
+    std::string key;
     int ipv6first = 0;
     int verbose = 0;
     std::shared_ptr<TCPRelay> tcpRelay;

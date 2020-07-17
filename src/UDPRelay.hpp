@@ -10,9 +10,7 @@
 
 extern "C"
 {
-#include "encrypt.h"
-#include "obfs/obfs.h"
-#include "shadowsocksr.h"
+#include "shadowsocks.h"
 }
 class CipherEnv;
 class ObfsClass;
@@ -51,7 +49,7 @@ private:
     void serverRecv(uvw::UDPDataEvent& data, uvw::UDPHandle& handle);
 
 public:
-    UDPRelay(std::shared_ptr<uvw::Loop> loop, CipherEnv& cipherEnv, ObfsClass& obfsClass, const profile_t& profile);
+    UDPRelay(std::shared_ptr<uvw::Loop> loop, CipherEnv& cipherEnv, const profile_t& profile);
 
     ~UDPRelay();
 
@@ -61,15 +59,13 @@ private:
     CipherEnv* cipherEnvPtr;
 
 public:
-    std::unique_ptr<obfs_class, decltype(free)*> protocol_plugin;
-    std::unique_ptr<obfs, decltype(obfs_class::dispose)> protocolPtr;
+    static constexpr int PACKET_HEADER_SIZE = 1 + 28 + 2 + 64;
+    static constexpr int DEFAULT_PACKET_SIZE = 1492 - PACKET_HEADER_SIZE; //the default MTU for UDP relay
 
 private:
     void* protocol_global = nullptr;
     int timeout;
     static constexpr int MAX_UDP_PACKET_SIZE = 65507;
-    static constexpr int PACKET_HEADER_SIZE = 1 + 28 + 2 + 64;
-    static constexpr int DEFAULT_PACKET_SIZE = 1492 - PACKET_HEADER_SIZE; //the default MTU for UDP relay
     std::unique_ptr<Buffer> localBuf;
     std::shared_ptr<uvw::Loop> loop;
     std::shared_ptr<uvw::UDPHandle> udpServer;

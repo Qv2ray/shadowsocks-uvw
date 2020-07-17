@@ -1,5 +1,6 @@
 #include "NetUtils.hpp"
 #include "uvw/loop.h"
+#include "uvw/tcp.h"
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 #include <cstring>
@@ -26,7 +27,7 @@ TEST_CASE("GetSockAddr for IPv4", "[netutils]")
     auto ip = "220.181.38.148";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, ip, port, &storage, true);
-    REQUIRE(res == 0);
+    REQUIRE(res != -1);
     uv_ip4_addr(ip, port, reinterpret_cast<struct sockaddr_in*>(&storage2));
     for (auto i = 0; i < sizeof(sockaddr_storage); ++i) {
         auto storage_ptr = reinterpret_cast<char*>(&storage);
@@ -43,7 +44,7 @@ TEST_CASE("GetSockAddr for IPv4 invalid", "[netutils]")
     auto ip = "299.299.299.299";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, ip, port, &storage, true);
-    REQUIRE(res != 0);
+    REQUIRE(res == -1);
 }
 
 TEST_CASE("GetSockAddr for IPv6 invalid", "[netutils]")
@@ -54,7 +55,7 @@ TEST_CASE("GetSockAddr for IPv6 invalid", "[netutils]")
     auto ip = "fe80::1::2";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, ip, port, &storage, true);
-    REQUIRE(res != 0);
+    REQUIRE(res == -1);
 }
 
 TEST_CASE("GetSockAddr for IPv6", "[netutils]")
@@ -65,7 +66,7 @@ TEST_CASE("GetSockAddr for IPv6", "[netutils]")
     auto ip = "2607:f8b0:4007:804::200e";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, ip, port, &storage, true);
-    REQUIRE(res == 0);
+    REQUIRE(res != -1);
     uv_ip6_addr(ip, port, reinterpret_cast<struct sockaddr_in6*>(&storage2));
     for (auto i = 0; i < sizeof(sockaddr_storage); ++i) {
         auto storage_ptr = reinterpret_cast<char*>(&storage);
@@ -82,7 +83,7 @@ TEST_CASE("GetSockAddr for host ipv4", "[netutils]")
     auto host = "google.com";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, host, port, &storage, false);
-    REQUIRE(res == 0);
+    REQUIRE(res != -1);
     uv_getaddrinfo_t req;
     struct addrinfo hints;
     char digitBuffer[20] = { 0 };
@@ -116,7 +117,7 @@ TEST_CASE("GetSockAddr for host ipv6", "[netutils]")
     auto host = "ipv6.google.com";
     auto port = 443;
     int res = ssr_get_sock_addr(loop, host, port, &storage, true);
-    REQUIRE(res == 0);
+    REQUIRE(res != -1);
     uv_getaddrinfo_t req;
     struct addrinfo hints;
     char digitBuffer[20] = { 0 };
@@ -140,4 +141,46 @@ TEST_CASE("GetSockAddr for host ipv6", "[netutils]")
                 break;
         }
     REQUIRE(equal == true);
+}
+
+#ifndef _WIN32
+TEST_CASE("fail to get local valid port","[netutils]")
+{
+    auto loop = uvw::Loop::create();
+    auto tmpTCP=loop->resource<uvw::TCPHandle>();
+    struct tmp_tcp{
+        tmp_tcp(uvw::TCPHandle& h):h(h){}
+        ~tmp_tcp(){h.close();}
+        uvw::TCPHandle& h;
+    };
+    tmp_tcp t{*tmpTCP};
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family      = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port        = htons(80);
+    int ret=0;
+    tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
+    REQUIRE(tmpTCP->sock().port==0);
+}
+#endif
+
+TEST_CASE("success to get local valid port","[netutils]")
+{
+    auto loop = uvw::Loop::create();
+    auto tmpTCP=loop->resource<uvw::TCPHandle>();
+    struct tmp_tcp{
+        tmp_tcp(uvw::TCPHandle& h):h(h){}
+        ~tmp_tcp(){h.close();}
+        uvw::TCPHandle& h;
+    };
+    tmp_tcp t{*tmpTCP};
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family      = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port        = 0;
+    int ret=0;
+    tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
+    REQUIRE(tmpTCP->sock().port!=0);
 }

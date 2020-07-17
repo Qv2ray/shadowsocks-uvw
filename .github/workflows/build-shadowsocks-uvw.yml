@@ -1,4 +1,4 @@
-name: shadowsocksr build matrix - cmake
+name: shadowsocks build matrix - cmake
 
 on: 
   push:
@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        qt_version: [5.11.1, 5.14.2]
+        qt_version: [5.14.2]
         platform: [ubuntu-16.04, macos-latest, windows-latest]
         arch: [x86, x64]
         include: 
@@ -24,9 +24,6 @@ jobs:
             arch: x86
           - platform: macos-latest
             arch: x86
-          - platform: windows-latest
-            arch: x86
-            qt_version: 5.11.1
       fail-fast: false
         
     runs-on: ${{ matrix.platform }}
@@ -68,15 +65,12 @@ jobs:
       - name: Linux - ${{ matrix.qt_version }} - Build preparation - Install Packages 
         if: matrix.platform == 'ubuntu-16.04'
         run: |
-          sudo add-apt-repository ppa:webispy/grpc
-          sudo add-apt-repository ppa:carsten-uppenbrink-net/openssl
           sudo apt update
-          sudo apt install -y libssl-dev tree ninja-build 
+          sudo apt install -y tree ninja-build
 # --------------------------------------------------------
       - name: macOS - ${{ matrix.qt_version }} - Build preparation - Install Packages 
         if: matrix.platform == 'macos-latest'
         run: |
-          brew reinstall openssl
           brew reinstall ninja
 # --------------------------------------------------------
       - name: Win-${{ matrix.arch }} - ${{ matrix.qt_version }} - Build preparation - Download Dependencies
@@ -85,13 +79,6 @@ jobs:
         run: |
          mkdir -p ./libs
          choco install -y ninja
-         curl -o ./libs/Qv2ray-deps-openssl-${{ matrix.arch }}-windows.7z -L https://github.com/DuckVador/shadowsocksr-uvw-deps/releases/download/release/Qv2ray-deps-openssl-${{ matrix.arch }}-windows.7z
-      - name: Win-${{ matrix.arch }} - Build preparation - Extract Dependencies
-        if: matrix.platform == 'windows-latest'
-        uses: DuckSoft/extract-7z-action@v1.0
-        with:
-          pathSource: ./libs/Qv2ray-deps-openssl-${{ matrix.arch }}-windows.7z
-          pathTarget: ./libs
 # ========================================================================================================= Generate MakeFile and Build
       - name: macOS - ${{ matrix.qt_version }} - Generate Dependencies and Build
         shell: bash
@@ -99,7 +86,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1 -DOPENSSL_LIBRARIES=/usr/local/opt/openssl@1.1/lib 
+          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build . --parallel $(sysctl -n hw.logicalcpu)
 # --------------------------------------------------------        
       - name: Windows - ${{ matrix.qt_version }} - Generate Dependencies and Build
@@ -130,20 +117,20 @@ jobs:
         if: matrix.platform == 'windows-latest'
         uses: DuckSoft/create-7z-action@v1.0
         with:
-            pathSource: ./build/src/ssr-local.exe
+            pathSource: ./build/src/ss-local.exe
             pathTarget: ./release.7z
 
       - name: Unix-${{ matrix.arch }}  - Create 7z Release
         if: matrix.platform != 'windows-latest'
         uses: DuckSoft/create-7z-action@v1.0
         with:
-            pathSource: ./build/src/ssr-local
+            pathSource: ./build/src/ss-local
             pathTarget: ./release.7z
 
       - name: Uploading artifact ${{ matrix.platform }}
         uses: actions/upload-artifact@master
         with:
-            name: ssr-local-${{ matrix.platform }}-${{ matrix.arch }}.7z
+            name: ss-local-${{ matrix.platform }}-${{ matrix.arch }}.7z
             path: release.7z
 
       - name: Upload binaries to release
@@ -151,6 +138,6 @@ jobs:
         with:
             repo_token: ${{ secrets.GITHUB_TOKEN }}
             file: release.7z
-            asset_name: ssr-local-${{ matrix.platform}}-${{ matrix.arch }}.7z
+            asset_name: ss-local-${{ matrix.platform}}-${{ matrix.arch }}.7z
             tag: release
             overwrite: true

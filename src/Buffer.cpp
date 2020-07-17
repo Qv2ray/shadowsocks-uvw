@@ -1,9 +1,7 @@
 #include "Buffer.hpp"
 
 #include "ConnectionContext.hpp"
-#include "ObfsClass.hpp"
 #include "UDPRelay.hpp"
-#include "encrypt.h"
 #include "ssrutils.h"
 #include "uvw/stream.h"
 
@@ -12,7 +10,7 @@ namespace
 {
 void freeBuf(buffer_t* buf)
 {
-    free(buf->array);
+    free(buf->data);
     free(buf);
 }
 } // namespace
@@ -38,24 +36,24 @@ buffer_t* Buffer::newBuf()
 
 char Buffer::operator[](int idx)
 {
-    return buf->array[idx % (buf->capacity)];
+    return buf->data[idx % (buf->capacity)];
 }
 
 char** Buffer::getBufPtr()
 {
-    return &buf->array;
+    return &buf->data;
 }
 
 char* Buffer::back()
 {
     if (buf)
-        return buf->array + buf->len;
+        return buf->data + buf->len;
     return nullptr;
 }
 
 char* Buffer::begin()
 {
-    return buf->array;
+    return buf->data;
 }
 
 void Buffer::clear()
@@ -67,13 +65,13 @@ void Buffer::drop(size_t size)
 {
     if (buf->len < size)
         return;
-    memmove(buf->array, buf->array + size, buf->len - size);
+    memmove(buf->data, buf->data + size, buf->len - size);
     buf->len -= size;
 }
 
 void Buffer::bufRealloc(size_t size)
 {
-    buf->array = reinterpret_cast<char*>(realloc(buf->array, size * sizeof(char)));
+    buf->data = reinterpret_cast<char*>(realloc(buf->data, size * sizeof(char)));
     buf->capacity = size;
     buf->len = buf->capacity < buf->len ? buf->capacity : buf->len;
 }
@@ -81,7 +79,7 @@ void Buffer::bufRealloc(size_t size)
 std::unique_ptr<char[]> Buffer::duplicateDataToArray()
 {
     std::unique_ptr<char[]> data { new char[buf->len]() };
-    memcpy(data.get(), buf->array, buf->len);
+    memcpy(data.get(), buf->data, buf->len);
     return data;
 }
 
@@ -131,7 +129,7 @@ void Buffer::copyFromBegin(char* start, size_t size)
 
 void Buffer::copy(const Buffer& that)
 {
-    memcpy(buf->array, that.buf->array, that.buf->len);
+    memcpy(buf->data, that.buf->data, that.buf->len);
     buf->len = that.buf->len;
 }
 
@@ -145,52 +143,16 @@ size_t Buffer::length()
     return buf->len;
 }
 
-void Buffer::protocolPluginPreEncrypt(ObfsClass& obfsClass, ConnectionContext& connectionContext)
-{
-    if (obfsClass.protocol_plugin && obfsClass.protocol_plugin->client_pre_encrypt) {
-        setLength(obfsClass.protocol_plugin->client_pre_encrypt(connectionContext.protocolPtr.get(), getBufPtr(), buf->len, &buf->capacity));
-    }
-}
-
-void Buffer::protocolPluginPostDecrypt(ObfsClass& obfsClass, ConnectionContext& connectionContext)
-{
-    if (obfsClass.protocol_plugin && obfsClass.protocol_plugin->client_post_decrypt) {
-        setLength(obfsClass.protocol_plugin->client_post_decrypt(connectionContext.protocolPtr.get(), getBufPtr(), buf->len, &buf->capacity));
-    }
-}
-
 int Buffer::ssEncrypt(CipherEnv& cipherEnv, ConnectionContext& connectionContext)
 {
-    int err = ss_encrypt(&cipherEnv.cipher, buf.get(), connectionContext.e_ctx.get(), BUF_DEFAULT_CAPACITY);
+    int err = cipherEnv.crypto->encrypt(buf.get(), connectionContext.e_ctx.get(), BUF_DEFAULT_CAPACITY);
     return err;
 }
 
 int Buffer::ssDecrypt(CipherEnv& cipherEnv, ConnectionContext& connectionContext)
 {
-    int err = ss_decrypt(&cipherEnv.cipher, buf.get(), connectionContext.d_ctx.get(), BUF_DEFAULT_CAPACITY);
+    int err = cipherEnv.crypto->decrypt(buf.get(), connectionContext.d_ctx.get(), BUF_DEFAULT_CAPACITY);
     return err;
-}
-
-void Buffer::clientEncode(ObfsClass& obfsClass, ConnectionContext& connectionContext, int encodeLen)
-{
-    if (obfsClass.obfs_plugin) {
-        if (obfsClass.obfs_plugin->client_encode) {
-            auto encode = obfsClass.obfs_plugin->client_encode;
-            setLength(encode(connectionContext.obfsPtr.get(), getBufPtr(), encodeLen == -1 ? buf->len : 0, &buf->capacity));
-        }
-    }
-}
-
-int Buffer::clientDecode(ObfsClass& obfsClass, ConnectionContext& connectionContext)
-{
-    int needSendBack = 0;
-    if (obfsClass.obfs_plugin) {
-        if (obfsClass.obfs_plugin->client_decode) {
-            auto decode = obfsClass.obfs_plugin->client_decode;
-            setLength(decode(connectionContext.obfsPtr.get(), getBufPtr(), buf->len, &buf->capacity, &needSendBack));
-        }
-    }
-    return needSendBack;
 }
 
 size_t* Buffer::getCapacityPtr()
@@ -206,38 +168,19 @@ void Buffer::copy(char* start, char* end)
 
 int Buffer::ssEncryptAll(CipherEnv& cipherEnv)
 {
-    int err = ss_encrypt_all(&cipherEnv.cipher, buf.get(), buf->capacity);
+    int err = cipherEnv.crypto->encrypt_all(buf.get(), cipherEnv.crypto->cipher, UDPRelay::DEFAULT_PACKET_SIZE * 2);
     return err;
 }
 
 int Buffer::ssDecryptALl(CipherEnv& cipherEnv)
 {
-    int err = ss_decrypt_all(&cipherEnv.cipher, buf.get(), buf->capacity);
+    int err = cipherEnv.crypto->decrypt_all(buf.get(), cipherEnv.crypto->cipher, UDPRelay::DEFAULT_PACKET_SIZE * 2);
     return err;
 }
 
-void Buffer::protocolPluginUDPPreEncrypt(UDPRelay& connectionContext)
-{
-    if (connectionContext.protocol_plugin) {
-        if (connectionContext.protocol_plugin->client_udp_pre_encrypt) {
-            auto clientUdpPreEncrypt = connectionContext.protocol_plugin->client_udp_pre_encrypt;
-            setLength(clientUdpPreEncrypt(connectionContext.protocolPtr.get(), getBufPtr(), buf->len, &buf->capacity));
-        }
-    }
-}
-
-void Buffer::protocolPluginUDPPostDecrypt(UDPRelay& connectionContext)
-{
-    if (connectionContext.protocol_plugin) {
-        if (connectionContext.protocol_plugin->client_post_decrypt) {
-            auto clientPostDecrypt = connectionContext.protocol_plugin->client_udp_post_decrypt;
-            setLength(clientPostDecrypt(connectionContext.protocolPtr.get(), getBufPtr(), buf->len, &buf->capacity));
-        }
-    }
-}
 char* Buffer::end()
 {
     if (buf)
-        return buf->array + buf->capacity;
+        return buf->data + buf->capacity;
     return nullptr;
 }

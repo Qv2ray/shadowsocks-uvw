@@ -1,31 +1,13 @@
-# -*- coding: utf-8 -*-
-# ----------------------------------------------------------------------
-# Copyright © 2011-2015, RedJack, LLC.
-# All rights reserved.
-#
-# Please see the COPYING file in this distribution for license details.
-# ----------------------------------------------------------------------
-
 cmake_minimum_required(VERSION 3.10)
-set(PROJECT_NAME shadowsocksr-uvw)
+set(PROJECT_NAME shadowsocks-uvw)
 project(${PROJECT_NAME})
 set(VERSION 0.0.1)
 # Detect linux
 if (UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif ()
-if(WIN32)
-    if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-        if(CMAKE_CL_64)
-            include(${CMAKE_SOURCE_DIR}/libs/x64-windows/scripts/buildsystems/vcpkg.cmake)
-        else()
-            include(${CMAKE_SOURCE_DIR}/libs/x86-windows/scripts/buildsystems/vcpkg.cmake)
-        endif()
-    endif()
-endif()
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
 include(CTest)
-set(WITH_CRYPTO_LIBRARY "openssl" CACHE STRING "build with the given crypto library, TYPE=openssl|polarssl|mbedtls default=openssl")
 set(SSR_UVW_WITH_QT 1 CACHE BOOL "build with qt")
 option(BUILD_SODIUM_TESTING "build sodium testing when static link sodium" OFF)
 option(USE_SYSTEM_SODIUM "use system sodium" OFF)
@@ -63,8 +45,21 @@ if(NOT USE_SYSTEM_LIBUV)
         set(LibUV_LIBRARIES uv::uv-shared)
     endif()
 endif()
+
+#mbedtls
+set(USE_STATIC_MBEDTLS_LIBRARY 1)
+set(USE_SHARED_MBEDTLS_LIBRARY 0)
+set(MBEDTLS_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls/include)
+add_subdirectory(mbedtls EXCLUDE_FROM_ALL)
+add_library(mbed::crypto ALIAS "mbedcrypto")
+add_library(mbed::x509 ALIAS "mbedx509")
+add_library(mbed::tls ALIAS "mbedtls")
+set(LIBCRYPTO mbed::crypto mbed::tls mbed::crypto)
+
+
 include ( cmake/dist.cmake )
 include ( configure )
+include (cmake/libbloom.cmake)
 configure_file ( ${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h )
 
 

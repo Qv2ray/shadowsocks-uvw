@@ -1,7 +1,7 @@
 /*
  * cache.c - Manage the connection cache for UDPRELAY
  *
- * Copyright (C) 2013 - 2016, Max Lv <max.c.lv@gmail.com>
+ * Copyright (C) 2013 - 2019, Max Lv <max.c.lv@gmail.com>
  *
  * This file is part of the shadowsocks-libev.
  *
@@ -25,15 +25,18 @@
  * License:  This is licensed under the same terms as uthash itself
  */
 
-#include "cache.h"
-
-#include "ssrutils.h"
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <errno.h>
 #include <stdlib.h>
+
+#include "cache.h"
+#include "ssrutils.h"
 #include <uv.h>
 
-ssr_tstamp uv_time()
+ss_tstamp uv_time()
 {
     uv_timeval64_t t;
     uv_gettimeofday(&t);
@@ -49,7 +52,8 @@ ssr_tstamp uv_time()
  *
  *  @return EINVAL if dst is NULL, ENOMEM if malloc fails, 0 otherwise
  */
-int cache_create(struct cache** dst, const size_t capacity, void (*free_cb)(void* key, void* element))
+int cache_create(struct cache** dst, const size_t capacity,
+    void (*free_cb)(void* key, void* element))
 {
     struct cache* new = NULL;
 
@@ -118,7 +122,7 @@ int cache_delete(struct cache* cache, int keep_data)
  *
  *  @return EINVAL if cache is NULL, 0 otherwise
  */
-static int cache_clear(struct cache* cache, ssr_tstamp age)
+int cache_clear(struct cache* cache, ss_tstamp age)
 {
     struct cache_entry *entry, *tmp;
 
@@ -126,7 +130,7 @@ static int cache_clear(struct cache* cache, ssr_tstamp age)
         return EINVAL;
     }
 
-    ssr_tstamp now = uv_time();
+    ss_tstamp now = uv_time();
 
     HASH_ITER(hh, cache->entries, entry, tmp)
     {
@@ -160,7 +164,7 @@ static int cache_clear(struct cache* cache, ssr_tstamp age)
  *
  *  @return EINVAL if cache is NULL, 0 otherwise
  */
-static int cache_remove(struct cache* cache, char* key, size_t key_len)
+int cache_remove(struct cache* cache, char* key, size_t key_len)
 {
     struct cache_entry* tmp;
 
@@ -206,7 +210,7 @@ static int cache_remove(struct cache* cache, char* key, size_t key_len)
  *
  *  @return EINVAL if cache is NULL, 0 otherwise
  */
-static int cache_lookup(struct cache* cache, char* key, size_t key_len, void* result)
+int cache_lookup(struct cache* cache, char* key, size_t key_len, void* result)
 {
     struct cache_entry* tmp = NULL;
     char** dirty_hack = result;
@@ -242,8 +246,6 @@ int cache_key_exist(struct cache* cache, char* key, size_t key_len)
         tmp->ts = uv_time();
         HASH_ADD_KEYPTR(hh, cache->entries, tmp->key, key_len, tmp);
         return 1;
-    } else {
-        return 0;
     }
 
     return 0;

@@ -7,15 +7,6 @@
    your system. */
 #cmakedefine PTHREAD_CREATE_JOINABLE @PTHREAD_CREATE_JOINABLE@
 
-/* Use Apple CommonCrypto library */
-#cmakedefine USE_CRYPTO_APPLECC 1
-
 /* Use mbed TLS library */
 #cmakedefine USE_CRYPTO_MBEDTLS 1
-
-/* Use OpenSSL library */
-#cmakedefine USE_CRYPTO_OPENSSL 1
-
-/* Use PolarSSL library */
-#cmakedefine USE_CRYPTO_POLARSSL 1
 

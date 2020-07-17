@@ -1,7 +1,7 @@
 /*
  * cache.h - Define the cache manager interface
  *
- * Copyright (C) 2013 - 2016, Max Lv <max.c.lv@gmail.com>
+ * Copyright (C) 2013 - 2019, Max Lv <max.c.lv@gmail.com>
  *
  * This file is part of the shadowsocks-libev.
  *
@@ -27,27 +27,27 @@
 
 #ifndef _CACHE_
 #define _CACHE_
-
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 #include "uthash.h"
-    typedef double ssr_tstamp;
+
     /**
-     * A cache entry
-     */
+ * A cache entry
+ */
+    typedef double ss_tstamp;
     struct cache_entry
     {
         char* key; /**<The key */
         void* data; /**<Payload */
-        ssr_tstamp ts; /**<Timestamp */
+        ss_tstamp ts; /**<Timestamp */
         UT_hash_handle hh; /**<Hash Handle for uthash */
     };
 
     /**
-     * A cache object
-     */
+ * A cache object
+ */
     struct cache
     {
         size_t max_entries; /**<Amount of entries this cache object can hold */
@@ -55,15 +55,14 @@ extern "C"
         void (*free_cb)(void* key, void* element); /**<Callback function to free cache entries */
     };
 
-    int cache_create(struct cache** dst, const size_t capacity, void (*free_cb)(void* key, void* element));
+    int cache_create(struct cache** dst, const size_t capacity,
+        void (*free_cb)(void* key, void* element));
     int cache_delete(struct cache* cache, int keep_data);
-    // int cache_clear(struct cache *cache, ev_tstamp age);
-    // int cache_lookup(struct cache *cache, char *key, size_t key_len, void
-    // *result);
+    int cache_clear(struct cache* cache, ss_tstamp age);
+    int cache_lookup(struct cache* cache, char* key, size_t key_len, void* result);
     int cache_insert(struct cache* cache, char* key, size_t key_len, void* data);
-    // int cache_remove(struct cache *cache, char *key, size_t key_len);
+    int cache_remove(struct cache* cache, char* key, size_t key_len);
     int cache_key_exist(struct cache* cache, char* key, size_t key_len);
-
 #ifdef __cplusplus
 }
 #endif
