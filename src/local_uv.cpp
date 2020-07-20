@@ -428,6 +428,10 @@ public:
             if (isStop) {
                 if(!tcpServer->closing())
                 {
+#ifdef SSR_UVW_WITH_QT
+                    statisticsUpdateTimer->stop();
+                    statisticsUpdateTimer->close();
+#endif
                     tcpServer->close();
                     inComingConnections.clear();
                     if (ssr_work_mode == 1) {
