@@ -69,7 +69,7 @@ void SSThread::run()
     profile.password = password.data();
     profile.plugin = plugin.empty()?nullptr:plugin.data();
     profile.plugin_opts = plugin_opts.empty() ?nullptr:plugin_opts.data();
-    profile.key=key.data();
+    profile.key=key.empty()?nullptr:key.data();
     profile.remote_port = remotePort;
     profile.local_port = localPort;
     profile.mtu = mtu;
