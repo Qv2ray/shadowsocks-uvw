@@ -1,10 +1,10 @@
 #include "sockaddr_universal.h"
 #include "ssrutils.h"
 #include "uvw/loop.h"
+#include "uvw/process.h"
 #include "uvw/stream.h"
 #include "uvw/tcp.h"
 #include "uvw/timer.h"
-#include "uvw/process.h"
 #include "uvw/util.h"
 
 #include <memory>
@@ -90,73 +90,75 @@ public:
 private:
     uint16_t getLocalPort()
     {
-        auto tmpTCP=loop->resource<uvw::TCPHandle>();
-        struct tmp_tcp{
-            tmp_tcp(uvw::TCPHandle& h):h(h){}
-            ~tmp_tcp(){h.close();}
+        auto tmpTCP = loop->resource<uvw::TCPHandle>();
+        struct tmp_tcp
+        {
+            tmp_tcp(uvw::TCPHandle& h)
+                : h(h)
+            {
+            }
+            ~tmp_tcp() { h.close(); }
             uvw::TCPHandle& h;
         };
-        tmp_tcp t{*tmpTCP};
+        tmp_tcp t { *tmpTCP };
         struct sockaddr_in serv_addr;
         memset(&serv_addr, 0, sizeof(serv_addr));
-        serv_addr.sin_family      = AF_INET;
+        serv_addr.sin_family = AF_INET;
         serv_addr.sin_addr.s_addr = INADDR_ANY;
-        serv_addr.sin_port        = 0;
+        serv_addr.sin_port = 0;
         tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
         return tmpTCP->sock().port;
     }
 
     void startPlugin()
     {
-        if(!profile.plugin) return;
-        std::string ss_remote_host{"SS_REMOTE_HOST="};
-        std::string ss_remote_port{"SS_REMOTE_PORT="};
-        std::string ss_local_host{"SS_LOCAL_HOST="};
-        std::string ss_local_port{"SS_LOCAL_PORT="};
+        if (!profile.plugin)
+            return;
+        std::string ss_remote_host { "SS_REMOTE_HOST=" };
+        std::string ss_remote_port { "SS_REMOTE_PORT=" };
+        std::string ss_local_host { "SS_LOCAL_HOST=" };
+        std::string ss_local_port { "SS_LOCAL_PORT=" };
         std::string plugin_opts;
         std::vector<char*> env;
-        char digitBuffer[8]={0};
-        char* args[2]={nullptr};
+        char digitBuffer[8] = { 0 };
+        char* args[2] = { nullptr };
 
-        pluginProcess=loop->resource<uvw::ProcessHandle>();
-        using Process=uvw::ProcessHandle::Process;
-        using StdioFlag=uvw::ProcessHandle::StdIO;
-        pluginProcess->flags(uvw::Flags<Process>::from<Process::WINDOWS_HIDE,Process::WINDOWS_HIDE_CONSOLE>());
-        pluginProcess->stdio(uvw::StdOUT,StdioFlag::IGNORE_STREAM);
-        pluginProcess->stdio(uvw::StdERR,StdioFlag::IGNORE_STREAM);
+        pluginProcess = loop->resource<uvw::ProcessHandle>();
+        using Process = uvw::ProcessHandle::Process;
+        using StdioFlag = uvw::ProcessHandle::StdIO;
+        pluginProcess->flags(uvw::Flags<Process>::from<Process::WINDOWS_HIDE, Process::WINDOWS_HIDE_CONSOLE>());
+        pluginProcess->stdio(uvw::StdOUT, StdioFlag::IGNORE_STREAM);
+        pluginProcess->stdio(uvw::StdERR, StdioFlag::IGNORE_STREAM);
 
-        ss_remote_host+=profile.remote_host;
-        sprintf(digitBuffer,"%d",profile.remote_port); 
-        ss_remote_port+=digitBuffer;
-        ss_local_host+=profile.local_addr;
-        memset(digitBuffer,0,sizeof(digitBuffer));
+        ss_remote_host += profile.remote_host;
+        sprintf(digitBuffer, "%d", profile.remote_port);
+        ss_remote_port += digitBuffer;
+        ss_local_host += profile.local_addr;
+        memset(digitBuffer, 0, sizeof(digitBuffer));
         pluginPort = getLocalPort();
-        sprintf(digitBuffer,"%d",pluginPort); 
-        ss_local_port+=digitBuffer;
+        sprintf(digitBuffer, "%d", pluginPort);
+        ss_local_port += digitBuffer;
         env.push_back(const_cast<char*>(ss_remote_host.c_str()));
         env.push_back(const_cast<char*>(ss_remote_port.c_str()));
         env.push_back(const_cast<char*>(ss_local_host.c_str()));
         env.push_back(const_cast<char*>(ss_local_port.c_str()));
-        if(profile.plugin_opts)
-        {
-            plugin_opts+="SS_PLUGIN_OPTIONS=";
-            plugin_opts+=profile.plugin_opts;
+        if (profile.plugin_opts) {
+            plugin_opts += "SS_PLUGIN_OPTIONS=";
+            plugin_opts += profile.plugin_opts;
             env.push_back(const_cast<char*>(plugin_opts.c_str()));
         }
-        args[0]=const_cast<char*>(profile.plugin);
-        pluginProcess->once<uvw::ErrorEvent>([](uvw::ErrorEvent& e,uvw::ProcessHandle& h)
-        {
-            LOGE("%s",e.what());
+        args[0] = const_cast<char*>(profile.plugin);
+        pluginProcess->once<uvw::ErrorEvent>([](uvw::ErrorEvent& e, uvw::ProcessHandle& h) {
+            LOGE("%s", e.what());
             h.close();
         });
-        pluginProcess->once<uvw::ExitEvent>([](uvw::ExitEvent& e,uvw::ProcessHandle& h)
-        {
-        LOGI("Accept signal:%d,exit status:%d",e.signal,(int)e.status);
-        h.close();
+        pluginProcess->once<uvw::ExitEvent>([](uvw::ExitEvent& e, uvw::ProcessHandle& h) {
+            LOGI("Accept signal:%d,exit status:%d", e.signal, (int)e.status);
+            h.close();
         });
         //get parent path and add cwd to path
 #ifndef _WIN32
-        std::string path{"PATH="+uvw::Utilities::OS::env("PATH")+":"+uvw::Utilities::cwd()};
+        std::string path { "PATH=" + uvw::Utilities::OS::env("PATH") + ":" + uvw::Utilities::cwd() };
         env.push_back(const_cast<char*>(path.c_str()));
 #endif
         LOGI("plugin \"%s\" enabled", profile.plugin);
@@ -409,10 +411,9 @@ public:
         stopTimer = loop->resource<uvw::TimerHandle>();
         LOGI("listening at %s:%d", profile.local_addr, profile.local_port);
         cipherEnv = std::make_unique<CipherEnv>(profile.password, profile.method, profile.key);
-        if(cipherEnv->crypto)
+        if (cipherEnv->crypto)
             LOGI("initializing ciphers...%s", profile.method);
-        else
-        {
+        else {
             LOGI("initializing ciphers...%s failed", profile.method);
             return -1;
         }
@@ -426,8 +427,7 @@ public:
 #endif
         stopTimer->on<uvw::TimerEvent>([this, ssr_work_mode = p.mode](auto&, auto& handle) {
             if (isStop) {
-                if(!tcpServer->closing())
-                {
+                if (!tcpServer->closing()) {
 #ifdef SSR_UVW_WITH_QT
                     statisticsUpdateTimer->stop();
                     statisticsUpdateTimer->close();
@@ -435,21 +435,24 @@ public:
                     tcpServer->close();
                     inComingConnections.clear();
                     if (ssr_work_mode == 1) {
-                    udpRelay.reset(nullptr);
+                        udpRelay.reset(nullptr);
                     }
-                    if(pluginProcess)
-                    {
-                    pluginProcess->kill(SIGTERM);
+                    if (pluginProcess) {
+                        pluginProcess->kill(SIGTERM);
                     }
                 }
-                int timer_count=0;
-                loop->walk([&timer_count](uvw::BaseHandle&h)
-                           {
-                                if(!h.closing())
-                                    timer_count++;
-                           });
+                int timer_count = 0;
+                uv_walk(
+                    loop->raw(),
+                    [](uv_handle_t* handle, void* arg) {
+                        int& counter = *static_cast<int*>(arg);
+                        if (uv_is_closing(handle) == 0)
+                            counter++;
+                    },
+                    &timer_count);
                 //only current timer
-                if(timer_count!=1) return;
+                if (timer_count != 1)
+                    return;
                 handle.stop();
                 handle.close();
                 loop->clear();
@@ -459,19 +462,19 @@ public:
             }
         });
         stopTimer->start(uvw::TimerHandle::Time { 500 }, uvw::TimerHandle::Time { 500 });
-        if(profile.plugin)
-        {
+        if (profile.plugin) {
             startPlugin();
-            if(pluginProcess&&pluginProcess->closing())
+            if (pluginProcess && pluginProcess->closing())
                 return -1;
-            if(!pluginPort)
+            if (!pluginPort)
                 return -1;
         }
         if (ssr_get_sock_addr(loop,
-                    pluginPort? profile.local_addr:profile.remote_host, 
-                    pluginPort? pluginPort:profile.remote_port, 
-                    reinterpret_cast<struct sockaddr_storage*>(&remoteAddr),
-                    p.ipv6first) == -1)
+                pluginPort ? profile.local_addr : profile.remote_host,
+                pluginPort ? pluginPort : profile.remote_port,
+                reinterpret_cast<struct sockaddr_storage*>(&remoteAddr),
+                p.ipv6first)
+            == -1)
             return -1;
         int res = 0;
         if (p.mode == 1) {
@@ -479,10 +482,11 @@ public:
             //udp relay need real remote not plugin
             struct sockaddr_storage realRemoteAddr;
             if (ssr_get_sock_addr(loop,
-                        profile.remote_host, 
-                        profile.remote_port, 
-                        reinterpret_cast<struct sockaddr_storage*>(&realRemoteAddr),
-                        p.ipv6first) == -1)
+                    profile.remote_host,
+                    profile.remote_port,
+                    reinterpret_cast<struct sockaddr_storage*>(&realRemoteAddr),
+                    p.ipv6first)
+                == -1)
                 return -1;
             res = udpRelay->initUDPRelay(p.mtu, p.local_addr, p.local_port, realRemoteAddr);
             LOGI("UDP relay enabled");
