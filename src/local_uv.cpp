@@ -147,6 +147,7 @@ private:
             plugin_opts += profile.plugin_opts;
             env.push_back(const_cast<char*>(plugin_opts.c_str()));
         }
+        env.push_back(nullptr);
         args[0] = const_cast<char*>(profile.plugin);
         pluginProcess->once<uvw::ErrorEvent>([](uvw::ErrorEvent& e, uvw::ProcessHandle& h) {
             LOGE("%s", e.what());
@@ -293,16 +294,24 @@ private:
         }
         rx += event.length;
         auto& buf = *ctx.localBuf;
-        buf.copy(event);
-        int err = buf.ssDecrypt(*cipherEnv, ctx);
-        if (err == CRYPTO_ERROR) {
-            panic(ctx.client);
-            return;
-        } else if (err == CRYPTO_NEED_MORE) {
-            return;
+        char* base = event.data.get();
+        char* guard = base + event.length;
+        for (auto iter = base; iter < guard; iter += Buffer::BUF_DEFAULT_CAPACITY) {
+            buf.bufRealloc(Buffer::BUF_DEFAULT_CAPACITY);
+            size_t remain = guard - iter;
+            size_t len = remain > Buffer::BUF_DEFAULT_CAPACITY ? Buffer::BUF_DEFAULT_CAPACITY : remain;
+            buf.copyFromBegin(iter, len);
+            int err = buf.ssDecrypt(*cipherEnv, ctx);
+            if (err == CRYPTO_ERROR) {
+                panic(ctx.client);
+                return;
+            } else if (err == CRYPTO_NEED_MORE) {
+                buf.clear();
+                continue;
+            }
+            ctx.client->write(buf.duplicateDataToArray(), buf.length());
+            buf.clear();
         }
-        ctx.client->write(buf.duplicateDataToArray(), buf.length());
-        buf.clear();
     }
 
     void connectRemote(ConnectionContext& ctx)

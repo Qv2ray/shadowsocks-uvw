@@ -144,43 +144,51 @@ TEST_CASE("GetSockAddr for host ipv6", "[netutils]")
 }
 
 #ifndef _WIN32
-TEST_CASE("fail to get local valid port","[netutils]")
+TEST_CASE("fail to get local valid port", "[netutils]")
 {
     auto loop = uvw::Loop::create();
-    auto tmpTCP=loop->resource<uvw::TCPHandle>();
-    struct tmp_tcp{
-        tmp_tcp(uvw::TCPHandle& h):h(h){}
-        ~tmp_tcp(){h.close();}
+    auto tmpTCP = loop->resource<uvw::TCPHandle>();
+    struct tmp_tcp
+    {
+        tmp_tcp(uvw::TCPHandle& h)
+            : h(h)
+        {
+        }
+        ~tmp_tcp() { h.close(); }
         uvw::TCPHandle& h;
     };
-    tmp_tcp t{*tmpTCP};
+    tmp_tcp t { *tmpTCP };
     struct sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family      = AF_INET;
+    serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port        = htons(80);
-    int ret=0;
+    serv_addr.sin_port = htons(80);
+    int ret = 0;
     tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
-    REQUIRE(tmpTCP->sock().port==0);
+    REQUIRE(tmpTCP->sock().port == 0);
 }
 #endif
 
-TEST_CASE("success to get local valid port","[netutils]")
+TEST_CASE("success to get local valid port", "[netutils]")
 {
     auto loop = uvw::Loop::create();
-    auto tmpTCP=loop->resource<uvw::TCPHandle>();
-    struct tmp_tcp{
-        tmp_tcp(uvw::TCPHandle& h):h(h){}
-        ~tmp_tcp(){h.close();}
+    auto tmpTCP = loop->resource<uvw::TCPHandle>();
+    struct tmp_tcp
+    {
+        tmp_tcp(uvw::TCPHandle& h)
+            : h(h)
+        {
+        }
+        ~tmp_tcp() { h.close(); }
         uvw::TCPHandle& h;
     };
-    tmp_tcp t{*tmpTCP};
+    tmp_tcp t { *tmpTCP };
     struct sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family      = AF_INET;
+    serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port        = 0;
-    int ret=0;
+    serv_addr.sin_port = 0;
+    int ret = 0;
     tmpTCP->bind(reinterpret_cast<const struct sockaddr&>(serv_addr));
-    REQUIRE(tmpTCP->sock().port!=0);
+    REQUIRE(tmpTCP->sock().port != 0);
 }

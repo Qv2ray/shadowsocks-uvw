@@ -1,3 +1,4 @@
+#include "ssrutils.h"
 #include "uvw/tcp.h"
 #include "uvw/udp.h"
 #include <Buffer.hpp>
@@ -6,7 +7,11 @@
 
 TEST_CASE("newBuf", "[BufferTest]")
 {
-    auto buf = std::unique_ptr<buffer_t>(Buffer::newBuf());
+    auto freeBuf = [](buffer_t* buf) {
+        free(buf->data);
+        free(buf);
+    };
+    auto buf = std::unique_ptr<buffer_t, void (*)(buffer_t*)>(Buffer::newBuf(), freeBuf);
     REQUIRE(buf->capacity == Buffer::BUF_DEFAULT_CAPACITY);
     REQUIRE(buf->len == 0);
     REQUIRE(buf->idx == 0);
